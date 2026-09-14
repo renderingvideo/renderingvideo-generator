@@ -1,65 +1,37 @@
 ---
 name: renderingvideo-generator
-description: RenderingVideo preview assistant that uses the public preview flow at POST /api/preview without an API key. Use this when Codex needs to draft or edit RenderingVideo schema JSON, validate it with a temporary 7-day preview link, and return the preview URL and temp identifier.
+description: Create or revise RenderingVideo schema JSON and validate it through the public preview API without credentials. Returns a temporary preview URL and temp ID; supports the current schema's media, SVG, subtitle, layout, template, and 3D elements.
 ---
 
-# RenderingVideo Preview Assistant
+# RenderingVideo Public Preview
 
-Use this skill when the task only needs the public temporary preview flow.
+Use this skill when the task needs a public temporary preview. Permanent video tasks, hosted uploads, credit usage and downloadable renders use the authenticated API instead.
 
-## Read This First
+## Read the current schema
 
-- Read `https://renderingvideo.com/docs/api-and-usage.md` before calling the public preview endpoints.
-- Read `https://renderingvideo.com/docs/json-spec.md` before drafting or changing schema JSON.
-- Read `https://renderingvideo.com/docs/clips.md`, `https://renderingvideo.com/docs/elements.md`, and `https://renderingvideo.com/docs/elements/base-clip.md` when choosing clip types or fields.
-- Read `https://renderingvideo.com/docs/animation-and-timing.md` when the task changes timing, transitions, or animations.
+Read `https://renderingvideo.com/docs/api-and-usage.md` and `/docs/json-spec.md` before constructing a preview. Read `/docs/clips.md`, `/docs/elements.md` and the selected element pages for supported fields; read `/docs/animation-and-timing.md` when adding timing or motion.
 
-## Enforce These Rules
+The schema supports grouped assets (including fonts, SVGs, subtitles and models), asset references, nested layouts, templates, animations and keyframes. Choose fields from the relevant docs. Put dimensions under `transform`, and asset references in `src`, `svg` or the documented field rather than a clip-level `$ref`. `examples/enhanced-schema.json` is a self-contained grouped-SVG/gradient/animation example.
 
-- Use `POST /api/preview` for preview creation.
-- Send the schema itself as the request body. Do not wrap it in `{ "config": ... }`.
-- Do not require or send an API key for this skill.
-- Treat the returned preview link as temporary and expiring in 7 days.
-- Do not guess fields or routes from memory when `api-and-usage.md` covers them.
-
-## Run The Script
-
-Use the bundled script:
+## Generate a preview
 
 ```bash
-node ./scripts/gen-preview.cjs [path_to_json_file]
+node scripts/gen-preview.cjs example.json --json
+node scripts/gen-preview.cjs examples/enhanced-schema.json --json
 ```
 
-## Endpoint Mapping
+- POST the schema itself, with top-level `meta` and `tracks`, to `https://video.renderingvideo.com/api/preview`. Do not wrap it in `{ "config": ... }`.
+- No API key or agent credential is required or sent, even if the environment contains one.
+- `RENDERINGVIDEO_VIDEO_ORIGIN` overrides the video service origin for a local/test deployment. `RENDERINGVIDEO_TIMEOUT_MS` controls the timeout (90 seconds by default).
+- `--json` emits one JSON object with absolute URLs; omit it for a short readable summary.
+- Keep remote media publicly accessible and use supported references. Preview creation checks server acceptance, not whether every frame looks correct; inspect the returned viewer when visual confirmation is needed.
 
-- `gen-preview.cjs`: `POST https://video.renderingvideo.com/api/preview`
-- Playback URLs: `/t/:id` or `/preview/:id`
-- Readback endpoint: `GET /api/temp/:id`
+## Return and revise
 
-## Follow This Workflow
+Return `tempId` and the absolute shareable URL, preferring `viewerUrl`, then `previewUrl`, then the returned `url`/`playerUrl`. Preserve `expiresIn` when provided; previews normally last 7 days, but report the server's actual value. Do not invent a viewer route or expiry when fields are absent.
 
-1. Read `json-spec.md`, `clips.md`, and the relevant element page.
-2. Draft or update the schema JSON.
-3. Run `scripts/gen-preview.cjs` to create a temporary preview.
-4. Return the preview URL and temp identifier to the user.
-5. If the preview is wrong, revise the schema and generate a new preview.
+If the preview needs correction, revise the schema and create a new preview. If it has expired, create a replacement when requested. This flow does not produce a downloadable MP4 or confirm that a permanent render has completed.
 
-## Keep These API Rules
+## Failures
 
-- The preview body is the full schema JSON.
-- Missing top-level `meta` or `tracks` should be treated as invalid input.
-- The returned preview page is shareable but temporary.
-- Prefer `viewerUrl` when present. Fall back to `url` if needed.
-- Reuse returned `tempId`, `viewerUrl`, `url`, and `expiresIn` instead of guessing routes.
-
-## Return These Fields
-
-- Return `tempId`, `viewerUrl`, `url`, and `expiresIn` when present.
-- Return the full absolute preview URL, not only the relative path.
-- If the script or API returns validation failure details, preserve them.
-
-## Handle Failures Explicitly
-
-- If the API returns a non-2xx response, surface the HTTP status and response body.
-- If JSON parsing fails locally, report that the input file is invalid JSON.
-- If the preview expires or becomes invalid later, tell the user to generate a new preview.
+Report invalid local JSON, HTTP/API validation errors, malformed responses and timeouts explicitly. A successful HTTP status with `success: false` is a failure. Preserve useful API error details. Do not repeat an unchanged invalid request or claim a preview exists when the response contains no usable URL.
